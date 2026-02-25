@@ -32,15 +32,12 @@ Add each of the following to TodoWrite:
 
 - `./review-context/index.json` - list of files and changes analyzed
 - `./review-context/commit-message.json` - commit metadata (author, subject, SHA)
-- `./review-context/overview-result.json` - holistic overview analysis issues (may not exist if agent was skipped)
 - `./review-context/LORE-result.json` - lore issues (may not exist if agent was skipped)
 - `./review-context/SYZKALLER-result.json` - syzkaller claim verification (may not exist if not a syzkaller commit)
 - `./review-context/FIXES-result.json` - fixes tag issue (may not exist if agent was skipped)
 - `<prompt_dir>/inline-template.md` - formatting template
 - ALL `./review-context/FILE-*-review-result.json` files (regression issues found by review agent)
   - Glob: ./review-context/FILE-*-review-result.json
-- ALL `./review-context/FILE-*-side-effect-result.json` files (side-effect issues found in unmodified code)
-  - Glob: ./review-context/FILE-*-side-effect-result.json
 
 **DO NOT READ:**
 - ❌ `change.diff` - not needed, use commit-message.json for metadata
@@ -49,20 +46,19 @@ Add each of the following to TodoWrite:
 
 Then read all of the indicated files in ONE message.
 
-- Do not skip reading any result files. FILE-*-review-result.json and
-  FILE-*-side-effect-result.json contain the most important review findings.
+- Do not skip reading any result files. FILE-*-review-result.json
+  contains the most important review findings.
 - The presence of any *-result.json files does not allow you skip reading any
   other files, they must all be read.
 
 Use Glob first to find which result files exist:
 ```
 Glob: ./review-context/FILE-*-review-result.json
-Glob: ./review-context/FILE-*-side-effect-result.json
 ```
 
 Then read ALL found files plus context files in ONE message:
 ```
-Read: index.json + commit-message.json + overview-result.json + LORE-result.json + SYZKALLER-result.json + FIXES-result.json + <prompt_dir>/inline-template.md + all FILE-*-review-result.json + all FILE-*-side-effect-result.json
+Read: index.json + commit-message.json + LORE-result.json + SYZKALLER-result.json + FIXES-result.json + <prompt_dir>/inline-template.md + all FILE-*-review-result.json
 ```
 
 ### Step 2: Process Results (no additional reads needed)
@@ -73,19 +69,6 @@ From the files already loaded in Step 1:
 1. For each file in index.json["files"], check its review result
    - If `FILE-N-review-result.json` was loaded: collect regressions from the `regressions` array
    - If regressions array is empty: no issues were found for this FILE-N
-
-**Side-effect issues** (from FILE-N-side-effect-result.json files):
-1. For each `FILE-N-side-effect-result.json` found, collect regressions from the `regressions` array
-2. These are bugs in UNMODIFIED code caused by behavioral changes in the patch
-   (race conditions from locking changes, broken callers, etc.)
-3. Each side-effect issue has id like "FILE-N-SE-R1", "FILE-N-SE-R2", etc.
-4. Side-effect issues always have `"issue_category": "side-effect"`
-5. If regressions array is empty: no side-effect issues were found
-
-**Overview issues** (from overview-result.json):
-1. If `overview-result.json` was loaded, collect regressions from the `regressions` array
-2. Each overview issue has id like "OVERVIEW-R1", "OVERVIEW-R2", etc.
-3. If regressions array is empty: overview analysis found no holistic issues
 
 **Lore issues** (from LORE-result.json):
 1. If `LORE-result.json` was loaded, collect issues from the `issues` array
@@ -103,8 +86,6 @@ From the files already loaded in Step 1:
 
 **Combine all issues**:
 - Analysis issues: id pattern "FILE-N-CHANGE-M-R1", "FILE-N-CHANGE-M-R2", etc.
-- Side-effect issues: id pattern "FILE-N-SE-R1", "FILE-N-SE-R2", etc.
-- Overview issues: id pattern "OVERVIEW-R1", "OVERVIEW-R2", etc.
 - Lore issues: id pattern "LORE-1", "LORE-2", etc.
 - Syzkaller issues: id pattern "SYZKALLER-1", etc
 - Fixes issues: id pattern "FIXES-1", etc
@@ -149,12 +130,6 @@ agent was either skipped or failed — check the orchestrator output.
 
 Take special note of the detailed explanation in each issue.  This must
 be sent when inline-template.md is run later.
-
-**Overview issue format** (from overview-result.json):
-
-Uses the same format as FILE-N-review-result.json. The `change-id` is
-`"OVERVIEW"` and regressions use id pattern `"OVERVIEW-R1"`, `"OVERVIEW-R2"`, etc.
-These are holistic issues found during cross-subsystem analysis.
 
 **Lore issue format** (from LORE-result.json):
 
@@ -328,8 +303,6 @@ Total issues: <count>
   - Potential issues (guide-flagged): <count>
   By source:
   - Analysis issues: <count>
-  - Side-effect issues: <count>
-  - Overview issues: <count>
   - Lore issues: <count>
   - Fixes issues: <count>
 Highest severity: <none|low|medium|high|urgent>

@@ -91,9 +91,7 @@ bugs found are fixed later in the patch series.
 
 - **Phase 1**: Context gathering - spawn context.md agent (if context doesn't exist)
 - **Phase 2**: Parallel analysis - spawn ALL in parallel:
-  - overview.md (holistic diff analysis)
   - review.md (per FILE-N deep regression analysis)
-  - side-effect.md (per FILE-N side-effect analysis in unmodified code)
   - lore.md
   - syzkaller.md (if syzbot)
   - fixes.md
@@ -166,15 +164,13 @@ Model selection: <sonnet|opus> (reason: <all files simple|FILE-N is complex>)
 
 ---
 
-## Phase 2: Parallel Analysis (Overview + File Analysis + Side-Effect + Lore + Syzkaller + Fixes)
+## Phase 2: Parallel Analysis (File Analysis + Lore + Syzkaller + Fixes)
 
 **Agents**:
 
 | Agent | Model | Purpose | Input | Output |
 |-------|-------|---------|-------|--------|
-| `overview.md` | unified* | Holistic diff analysis | change.diff + commit-message.json | `overview-result.json` (always) |
 | `review.md` | unified* | Deep regression analysis | FILE-N group + git range | `FILE-N-review-result.json` (always) |
-| `side-effect.md` | opus | Side-effect analysis in unmodified code | FILE-N group (all CHANGE files) | `FILE-N-side-effect-result.json` (always) |
 | `lore.md` | sonnet | Check prior discussions | commit-message.json | `LORE-result.json` (always) |
 | `syzkaller.md` | opus | Verify syzbot commit claims | commit-message.json | `SYZKALLER-result.json` (always) |
 | `fixes.md` | sonnet | Find missing Fixes: tag | commit-message.json + diff | `FIXES-result.json` (always) |
@@ -182,8 +178,6 @@ Model selection: <sonnet|opus> (reason: <all files simple|FILE-N is complex>)
 *unified = opus if any change is complex, sonnet if all changes are simple
 
 - One `review.md` agent per FILE-N.
-- One `side-effect.md` agent per FILE-N (same FILE-N, launched in parallel with review).
-- `overview.md` always runs (unless explicitly skipped).
 - `lore.md` always runs (unless explicitly skipped)
 - `syzkaller.md` only if commit mentions syzbot/syzkaller.
 
@@ -209,17 +203,6 @@ A file is "simple" if ALL of these apply:
 - If ALL FILE-N are simple → use **sonnet** for ALL FILE-N agents
 
 **Agent Templates**:
-
-Overview (always):
-```
-Task: overview-analyzer
-Model: <sonnet|opus based on criteria above>
-Prompt: Perform holistic diff analysis.
-        Read the prompt file <prompt_dir>/agent/overview.md and execute it.
-
-        Context directory: ./review-context/
-        Prompt directory: <prompt_dir>
-```
 
 For each FILE-N in index.json["files"]:
 ```
@@ -285,38 +268,19 @@ Prompt: Search for the commit that introduced the bug being fixed.
         Prompt directory: <prompt_dir>
 ```
 
-For each FILE-N in index.json["files"] (side-effect, always):
-```
-Task: side-effect-analyzer-N
-Model: opus
-Prompt: Analyze side-effects of behavioral changes in FILE-<N>.
-        Read the prompt file <prompt_dir>/agent/side-effect.md and execute it.
-
-        Context directory: ./review-context/
-        Prompt directory: <prompt_dir>
-
-        FILE-N to analyze: FILE-<N>
-        Source file: <file path from index.json>
-        Changes to process:
-        - FILE-<N>-CHANGE-1.json: <function>
-        - FILE-<N>-CHANGE-2.json: <function>
-        ...
-```
-
 **CRITICAL**: Launch all Phase 2 agents with `run_in_background: true`.  If
 `--max-parallel` is not specified, launch ALL agents in a SINGLE response with
 multiple Task tool calls. If `--max-parallel <N>` is specified, launch agents in
 batches of at most N agents at a time:
 
-1. Collect all agents to spawn: overview, FILE-1 through FILE-N (review),
-   FILE-1 through FILE-N (side-effect),
+1. Collect all agents to spawn: FILE-1 through FILE-N (review),
    plus lore (if not skipped), syzkaller (if applicable), and fixes
 2. Launch the first batch (up to N agents) in a single response
 3. Wait for all agents in the batch to complete
 4. Launch the next batch
 5. Repeat until all agents have completed
 
-Prioritize non-FILE agents (overview, lore, syzkaller, fixes) in the first batch
+Prioritize non-FILE agents (lore, syzkaller, fixes) in the first batch
 since they tend to complete faster and don't depend on FILE analysis results.
 
 Since Phase 2 agents run in the background, you MUST call `TaskOutput` with
@@ -333,9 +297,7 @@ expected result file exists.  If the file is missing, wait up to 10 seconds
 the timeout, mark the agent as **failed**.
 
 Expected result files (one per agent):
-- Overview agent: `./review-context/overview-result.json` (always)
 - FILE-N review agents: `./review-context/FILE-N-review-result.json` (always, one per FILE-N)
-- FILE-N side-effect agents: `./review-context/FILE-N-side-effect-result.json` (always)
 - Lore agent: `./review-context/LORE-result.json` (always, unless agent was skipped)
 - Syzkaller agent: `./review-context/SYZKALLER-result.json` (always, if agent was spawned)
 - Fixes agent: `./review-context/FIXES-result.json` (always, unless agent was skipped)
@@ -365,10 +327,8 @@ this protocol.
 
 **Track cumulative results**:
 - Total regressions found (from file analysis)
-- Side-effect regressions found
 - Highest severity seen
 - Files processed vs total
-- Overview issues found
 - Lore threads/comments found
 - Syzkaller claim verification results (if applicable)
 - Fixes tag search results
@@ -376,10 +336,6 @@ this protocol.
 **Output after all Phase 2 agents processed**:
 ```
 PHASE 2 COMPLETE: Parallel Analysis
-
-Overview Analysis:
-  Issues found: <count>
-  Status: complete | failed
 
 File Analysis:
   Files analyzed: <count>/<total>
@@ -402,16 +358,6 @@ Syzkaller Verification: (if applicable)
   Verified FALSE: <count>
   Overall verdict: <ACCURATE | CONTAINS FALSE CLAIMS | INCONCLUSIVE>
   Status: complete | skipped | failed
-
-Side-Effect Analysis:
-  Files analyzed: <count>/<total>
-  Side-effect regressions found: <count>
-  Highest severity: <level|none>
-  Per-file summary:
-  - FILE-1 (<filename>): <N> side-effect regressions | no issues
-  - FILE-2 (<filename>): <N> side-effect regressions | no issues
-  ...
-  Status: complete | failed
 
 Fixes Tag Search:
   Fixed commit found: <yes|no>
@@ -495,8 +441,6 @@ Phases completed: 1 + 2 + 3
 Files analyzed: <count>
 Total issues found: <count>
   - Regressions (call chain): <count>
-  - Side-effect regressions: <count>
-  - Overview issues: <count>
   - Lore issues: <count>
   - Syzkaller false claims: <count> (if applicable)
   - Missing Fixes: tag: <yes|no>
@@ -515,9 +459,7 @@ Output files:
 | Phase | Error | Action |
 |-------|-------|--------|
 | 1 | Context creation failed | Stop workflow, report error |
-| 2 | Overview analysis failed | Log warning, continue with remaining agents |
 | 2 | FILE-N analysis failed | Log error, continue with remaining agents |
-| 2 | Side-effect analysis failed | Log error, continue with remaining agents |
 | 2 | Lore checking failed | Log warning, continue to Phase 3 |
 | 2 | Syzkaller verification failed | Log warning, continue to Phase 3 |
 | 2 | Fixes tag search failed | Log warning, continue to Phase 3 |
@@ -568,9 +510,7 @@ Analyze patch file /path/to/patch.diff
 ├── agent/
 │   ├── orc.md          (this file)
 │   ├── context.md
-│   ├── overview.md
 │   ├── review.md       (regression analysis)
-│   ├── side-effect.md  (side-effect analysis in unmodified code)
 │   ├── lore.md
 │   ├── syzkaller.md
 │   ├── fixes.md
@@ -600,14 +540,9 @@ Analyze patch file /path/to/patch.diff
 ├── FILE-3-CHANGE-1.json
 ├── FILE-3-CHANGE-2.json
 ├── FILE-1-review-result.json               (always created by review agent)
-├── FILE-1-side-effect-result.json          (always created by side-effect agent)
 ├── FILE-2-review-result.json               (always created by review agent)
-├── FILE-2-side-effect-result.json          (always created by side-effect agent)
 ├── FILE-3-review-result.json               (always created by review agent)
-├── FILE-3-side-effect-result.json          (always created by side-effect agent)
 ├── FILE-1-CHANGE-1-debug.json              (diagnostic: subsystem knowledge intersections)
-├── FILE-1-side-effect-debug.json          (diagnostic: guide intersections with behavioral changes)
-├── overview-result.json                     (always created by overview agent)
 ├── LORE-result.json                         (always created by lore agent)
 ├── SYZKALLER-result.json                    (always created by syzkaller agent, if spawned)
 └── FIXES-result.json                        (always created by fixes agent)
